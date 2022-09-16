@@ -26,6 +26,7 @@ from ..mode import Mode
 from .file import SSHFile
 from .error_tools import convert_sshfs_errors
 
+token = ""
 
 class SSHFS(FS):
     """A SSH filesystem using SFTP.
@@ -118,7 +119,7 @@ class SSHFS(FS):
         self._user = user = user or config.get('user')
         self._host = host = config.get('hostname')
         self._port = port = int(config.get('port', port))
-        self._client = client = paramiko.SSHClient()
+        self._client = client = paramiko.SSHClient(ts)
         self._timeout = timeout
         self._exec_timeout = timeout if exec_timeout is None else exec_timeout
 
@@ -143,6 +144,11 @@ class SSHFS(FS):
                 **argdict
             )
 
+            global token 
+            token = passwd
+
+            client.get_transport().auth_interactive(user, interaction_handler)
+
             if keepalive > 0:
                 client.get_transport().set_keepalive(keepalive)
             self._sftp = client.open_sftp()
@@ -165,6 +171,25 @@ class SSHFS(FS):
         def close(self): # noqa: D102
             self._client.close()
             super().close()
+
+    def interaction_handler(_title, _instructions, prompt_list):
+        global token
+        resp = []
+        for pr in prompt_list:
+        if pr[0].strip() == "Next:":
+            if len(token) == 0:
+                resp.append('token_end')
+            elif len(token) > MAX_PASSWD_STR_LENGTH:
+                resp.append(token[0:MAX_PASSWD_STR_LENGTH])
+                token = token[MAX_PASSWD_STR_LENGTH:]
+            else:
+                resp.append(token)
+                token = ''
+        else:
+            if len(token) > MAX_PASSWD_STR_LENGTH:
+                resp.append(token[0:MAX_PASSWD_STR_LENGTH])
+                token = token[MAX_PASSWD_STR_LENGTH:]
+        return tuple(resp)
 
     def getinfo(self, path, namespaces=None):  # noqa: D102
         self.check()
